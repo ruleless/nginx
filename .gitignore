@@ -1,2 +1,5 @@
 /objs
 Makefile
+GPATH
+GRTAGS
+GTAGS
