@@ -10,6 +10,8 @@
 #define NGX_PMAP_ENDPOINT_CLIENT	1
 #define NGX_PMAP_ENDPOINT_SERVER	2
 
+
+/* the listening structure */
 typedef struct {
     union {
         struct sockaddr sockaddr;
@@ -27,16 +29,20 @@ typedef struct {
     int backlog;
 } ngx_pmap_listen_t;
 
-typedef struct {
-	int endpoint;
-	ngx_pmap_listen_t listen;
-} ngx_pmap_conf_t;
 
+/* pmap module */
 typedef struct {
 	ngx_str_t *name;
 
 	void *(*create_conf)(ngx_cycle_t *cycle);
 	void *(*init_conf)(ngx_cycle_t *cycle, void *conf);
 } ngx_pmap_module_t;
+
+
+/* conf structure of ngx_pmap_core_module */
+typedef struct {
+	ngx_int_t endpoint;
+} ngx_pmap_conf_t;
+
 
 #endif /* _NGX_PMAP_H_INCLUDED_ */
