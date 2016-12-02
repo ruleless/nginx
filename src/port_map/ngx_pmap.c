@@ -1,6 +1,9 @@
 #include <ngx_config.h>
 #include <ngx_core.h>
+#include <ngx_event.h>
 #include "ngx_pmap.h"
+
+extern ngx_module_t ngx_pmap_client_module;
 
 static char *ngx_pmap_block(ngx_conf_t *cf, ngx_command_t *cmd, void *conf);
 
@@ -9,6 +12,9 @@ static void *ngx_pmap_core_init_conf(ngx_cycle_t *cycle, void *conf);
 
 static char *ngx_pmap_parse_client(ngx_conf_t *cf, ngx_command_t *cmd, void *conf);
 static char *ngx_pmap_parse_server(ngx_conf_t *cf, ngx_command_t *cmd, void *conf);
+
+static ngx_listening_t *
+ngx_pmap_add_listening(ngx_conf_t *cf, ngx_pmap_listen_t *lscf, ngx_connection_handler_pt handler);
 
 static ngx_uint_t ngx_pmap_max_module;
 
@@ -99,17 +105,20 @@ ngx_module_t ngx_pmap_core_module = {
 static char *
 ngx_pmap_block(ngx_conf_t *cf, ngx_command_t *cmd, void *conf)
 {
-	char                *rv;
-	ngx_int_t            i, mi;
-	void              ***ctx;
-	ngx_pmap_module_t   *m;
-	ngx_conf_t           pcf;
+	char                     *rv;
+	ngx_int_t                 i, mi;
+	void                   ***ctx;
+	ngx_pmap_module_t        *m;
+	ngx_conf_t                pcf;
+	ngx_pmap_conf_t          *corecf;
+	ngx_pmap_client_conf_t   *clientcf;
 	
 	if (*(void **)conf) {
 		return "is duplicate";
 	}
 
 	/* count the number of the pmap modules and set up their indices */
+	
 	ngx_pmap_max_module = ngx_count_modules(cf->cycle, NGX_PMAP_MODULE);
 
 	ctx = ngx_pcalloc(cf->pool, sizeof(void *));
@@ -169,6 +178,19 @@ ngx_pmap_block(ngx_conf_t *cf, ngx_command_t *cmd, void *conf)
 		}		
 	}
 
+	/* init listen */
+
+	corecf = ngx_pmap_get_conf(cf->cycle->conf_ctx, ngx_pmap_core_module);
+	clientcf = ngx_pmap_get_conf(cf->cycle->conf_ctx, ngx_pmap_client_module);
+			
+	if (!ngx_pmap_is_valid_endpt(corecf->endpoint)) {
+		ngx_conf_log_error(NGX_LOG_EMERG, cf, 0,
+						   "invalid endpoint \"%d\"", corecf->endpoint);
+		return NGX_CONF_ERROR;
+	}
+
+	ngx_pmap_add_listening(cf, &clientcf->listen, NULL);
+
 	return NGX_CONF_OK;
 }
 
@@ -183,6 +205,7 @@ ngx_pmap_core_create_conf(ngx_cycle_t *cycle)
 	}
 
 	corecf->endpoint = NGX_CONF_UNSET;
+	corecf->error_log = &cycle->new_log;
 
 	return corecf;
 }
@@ -322,4 +345,28 @@ ngx_pmap_parse_addr(ngx_conf_t *cf, ngx_pmap_addr_t *addr)
 	addr->socklen = u.socklen;
 
 	return NGX_CONF_OK;
+}
+
+static ngx_listening_t *
+ngx_pmap_add_listening(ngx_conf_t *cf, ngx_pmap_listen_t *lscf, ngx_connection_handler_pt handler)
+{
+	ngx_listening_t    *ls;
+	ngx_pmap_conf_t    *corecf;
+
+	ls = ngx_create_listening(cf, &lscf->u.sockaddr, lscf->socklen);
+	if (NULL == ls) {
+		return NULL;
+	}
+
+	corecf = ngx_pmap_get_conf(cf->cycle->conf_ctx, ngx_pmap_core_module);
+	
+	ls->addr_ntop = 1;	
+	ls->handler = handler;
+	ls->pool_size = 256;
+
+	ls->logp = corecf->error_log;
+	ls->log.data = &ls->addr_text;
+	ls->log.handler = ngx_accept_log_error;
+
+	return ls;   
 }

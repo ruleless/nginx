@@ -12,6 +12,12 @@
 #define NGX_PMAP_ENDPOINT_CLIENT	1
 #define NGX_PMAP_ENDPOINT_SERVER	2
 
+#define ngx_pmap_get_conf(conf_ctx, module)							\
+	(*(ngx_get_conf(conf_ctx, ngx_pmap_module)))[module.ctx_index]
+
+#define ngx_pmap_is_valid_endpt(endpt)									\
+	(NGX_PMAP_ENDPOINT_CLIENT == endpt || NGX_PMAP_ENDPOINT_SERVER == endpt)
+
 
 /* the listening structure */
 typedef struct {
@@ -58,6 +64,7 @@ typedef struct {
 /* conf structure of ngx_pmap_core_module */
 typedef struct {
 	ngx_int_t    endpoint;
+	ngx_log_t   *error_log;
 } ngx_pmap_conf_t;
 
 
