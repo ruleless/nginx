@@ -20,80 +20,80 @@ static ngx_uint_t ngx_pmap_max_module;
 
 
 static ngx_command_t ngx_pmap_commands[] = {
-	{ ngx_string("port_map"),
-	  NGX_MAIN_CONF|NGX_CONF_BLOCK|NGX_CONF_NOARGS,
-	  ngx_pmap_block,
-	  0,
-	  0,
-	  NULL },
+    { ngx_string("port_map"),
+      NGX_MAIN_CONF|NGX_CONF_BLOCK|NGX_CONF_NOARGS,
+      ngx_pmap_block,
+      0,
+      0,
+      NULL },
 
-	ngx_null_command
+    ngx_null_command
 };
 
 static ngx_core_module_t ngx_pmap_module_ctx = {
-	ngx_string("pmap"),
-	NULL,
-	NULL,
+    ngx_string("pmap"),
+    NULL,
+    NULL,
 };
 
 ngx_module_t ngx_pmap_module = {
-	NGX_MODULE_V1,
-	&ngx_pmap_module_ctx,
-	ngx_pmap_commands,
-	NGX_CORE_MODULE,
-	NULL,                                  /* init master */
+    NGX_MODULE_V1,
+    &ngx_pmap_module_ctx,
+    ngx_pmap_commands,
+    NGX_CORE_MODULE,
+    NULL,                                  /* init master */
     NULL,                                  /* init module */
     NULL,                                  /* init process */
     NULL,                                  /* init thread */
     NULL,                                  /* exit thread */
     NULL,                                  /* exit process */
     NULL,                                  /* exit master */
-	NGX_MODULE_V1_PADDING
+    NGX_MODULE_V1_PADDING
 };
 
 
 static ngx_str_t pmap_core_name = ngx_string("port_map");
 
 static ngx_command_t ngx_pmap_core_commands[] = {
-	{ ngx_string("endpoint"),
-	  NGX_PMAP_CONF|NGX_CONF_TAKE1,
-	  ngx_conf_set_num_slot,
-	  0,
-	  offsetof(ngx_pmap_conf_t, endpoint),
-	  NULL },
-	
-	{ ngx_string("client"),
-	  NGX_PMAP_CONF|NGX_CONF_BLOCK|NGX_CONF_NOARGS,
-	  ngx_pmap_parse_client,
-	  0,
-	  0,
-	  NULL },
-	
-	{ ngx_string("server"),
-	  NGX_PMAP_CONF|NGX_CONF_BLOCK|NGX_CONF_NOARGS,
-	  ngx_pmap_parse_server,
-	  0,
-	  0,
-	  NULL },
+    { ngx_string("endpoint"),
+      NGX_PMAP_CONF|NGX_CONF_TAKE1,
+      ngx_conf_set_num_slot,
+      0,
+      offsetof(ngx_pmap_conf_t, endpoint),
+      NULL },
+    
+    { ngx_string("client"),
+      NGX_PMAP_CONF|NGX_CONF_BLOCK|NGX_CONF_NOARGS,
+      ngx_pmap_parse_client,
+      0,
+      0,
+      NULL },
+    
+    { ngx_string("server"),
+      NGX_PMAP_CONF|NGX_CONF_BLOCK|NGX_CONF_NOARGS,
+      ngx_pmap_parse_server,
+      0,
+      0,
+      NULL },
 
-	ngx_null_command
+    ngx_null_command
 };
 
 ngx_pmap_module_t ngx_pmap_core_module_ctx = {
-	&pmap_core_name,
+    &pmap_core_name,
 
-	ngx_pmap_core_create_conf,
-	ngx_pmap_core_init_conf,
+    ngx_pmap_core_create_conf,
+    ngx_pmap_core_init_conf,
 };
 
 ngx_module_t ngx_pmap_core_module = {
-	NGX_MODULE_V1,
-	&ngx_pmap_core_module_ctx,
-	ngx_pmap_core_commands,
-	NGX_PMAP_MODULE,
-	NULL,                                  /* init master */
-    NULL,                 				   /* init module */
-    NULL,					               /* init process */
+    NGX_MODULE_V1,
+    &ngx_pmap_core_module_ctx,
+    ngx_pmap_core_commands,
+    NGX_PMAP_MODULE,
+    NULL,                                  /* init master */
+    NULL,                                  /* init module */
+    NULL,                                  /* init process */
     NULL,                                  /* init thread */
     NULL,                                  /* exit thread */
     NULL,                                  /* exit process */
@@ -105,148 +105,149 @@ ngx_module_t ngx_pmap_core_module = {
 static char *
 ngx_pmap_block(ngx_conf_t *cf, ngx_command_t *cmd, void *conf)
 {
-	char                     *rv;
-	ngx_int_t                 i, mi;
-	void                   ***ctx;
-	ngx_pmap_module_t        *m;
-	ngx_conf_t                pcf;
-	ngx_pmap_conf_t          *corecf;
-	ngx_pmap_client_conf_t   *clientcf;
-	
-	if (*(void **)conf) {
-		return "is duplicate";
-	}
+    char                     *rv;
+    ngx_int_t                 i, mi;
+    void                   ***ctx;
+    ngx_pmap_module_t        *m;
+    ngx_conf_t                pcf;
+    ngx_pmap_conf_t          *corecf;
+    ngx_pmap_client_conf_t   *clientcf;
+    
+    if (*(void **)conf) {
+        return "is duplicate";
+    }
 
-	/* count the number of the pmap modules and set up their indices */
-	
-	ngx_pmap_max_module = ngx_count_modules(cf->cycle, NGX_PMAP_MODULE);
+    /* count the number of the pmap modules and set up their indices */
+    
+    ngx_pmap_max_module = ngx_count_modules(cf->cycle, NGX_PMAP_MODULE);
 
-	ctx = ngx_pcalloc(cf->pool, sizeof(void *));
-	if (NULL == ctx) {
-		return NGX_CONF_ERROR;
-	}
+    ctx = ngx_pcalloc(cf->pool, sizeof(void *));
+    if (NULL == ctx) {
+        return NGX_CONF_ERROR;
+    }
 
-	*ctx = ngx_pcalloc(cf->pool, ngx_pmap_max_module*sizeof(void *));
-	if (NULL == *ctx) {
-		return NGX_CONF_ERROR;
-	}
+    *ctx = ngx_pcalloc(cf->pool, ngx_pmap_max_module*sizeof(void *));
+    if (NULL == *ctx) {
+        return NGX_CONF_ERROR;
+    }
 
-	*(void **)conf = ctx;
+    *(void **)conf = ctx;
 
-	for (i = 0; cf->cycle->modules[i]; ++i) {
-		if (cf->cycle->modules[i]->type != NGX_PMAP_MODULE) {
-			continue;
-		}
-		
-		m = cf->cycle->modules[i]->ctx;
-		mi = cf->cycle->modules[i]->ctx_index;
-		
-		if (m->create_conf) {
-			(*ctx)[mi] = m->create_conf(cf->cycle);
-			if (NULL == (*ctx)[mi]) {
-				return NGX_CONF_ERROR;
-			}
-		}
-	}
+    for (i = 0; cf->cycle->modules[i]; ++i) {
+        if (cf->cycle->modules[i]->type != NGX_PMAP_MODULE) {
+            continue;
+        }
+        
+        m = cf->cycle->modules[i]->ctx;
+        mi = cf->cycle->modules[i]->ctx_index;
+        
+        if (m->create_conf) {
+            (*ctx)[mi] = m->create_conf(cf->cycle);
+            if (NULL == (*ctx)[mi]) {
+                return NGX_CONF_ERROR;
+            }
+        }
+    }
 
-	pcf = *cf;
-	cf->ctx = ctx;
-	cf->module_type = NGX_PMAP_MODULE;
-	cf->cmd_type = NGX_PMAP_CONF;
+    pcf = *cf;
+    cf->ctx = ctx;
+    cf->module_type = NGX_PMAP_MODULE;
+    cf->cmd_type = NGX_PMAP_CONF;
 
-	rv = ngx_conf_parse(cf, NULL);
+    rv = ngx_conf_parse(cf, NULL);
 
-	*cf = pcf;
+    *cf = pcf;
 
-	if (rv != NGX_CONF_OK) {
-		return rv;
-	}
+    if (rv != NGX_CONF_OK) {
+        return rv;
+    }
 
-	for (i = 0; cf->cycle->modules[i]; ++i) {
-		if (cf->cycle->modules[i]->type != NGX_PMAP_MODULE) {
-			continue;
-		}
+    for (i = 0; cf->cycle->modules[i]; ++i) {
+        if (cf->cycle->modules[i]->type != NGX_PMAP_MODULE) {
+            continue;
+        }
 
-		m = cf->cycle->modules[i]->ctx;
-		mi = cf->cycle->modules[i]->ctx_index;
+        m = cf->cycle->modules[i]->ctx;
+        mi = cf->cycle->modules[i]->ctx_index;
 
-		if (m->init_conf) {
-			rv = m->init_conf(cf->cycle, (*ctx)[mi]);
-			if (rv != NGX_CONF_OK) {
-				return rv;
-			}
-		}		
-	}
+        if (m->init_conf) {
+            rv = m->init_conf(cf->cycle, (*ctx)[mi]);
+            if (rv != NGX_CONF_OK) {
+                return rv;
+            }
+        }       
+    }
 
-	/* init listen */
+    /* init listen */
+    
+    corecf = ngx_pmap_get_conf(cf->cycle->conf_ctx, ngx_pmap_core_module);    
+            
+    if (!ngx_pmap_is_valid_endpt(corecf->endpoint)) {
+        ngx_conf_log_error(NGX_LOG_EMERG, cf, 0,
+                           "invalid endpoint \"%d\"", corecf->endpoint);
+        return NGX_CONF_ERROR;
+    }
 
-	corecf = ngx_pmap_get_conf(cf->cycle->conf_ctx, ngx_pmap_core_module);
-	clientcf = ngx_pmap_get_conf(cf->cycle->conf_ctx, ngx_pmap_client_module);
-			
-	if (!ngx_pmap_is_valid_endpt(corecf->endpoint)) {
-		ngx_conf_log_error(NGX_LOG_EMERG, cf, 0,
-						   "invalid endpoint \"%d\"", corecf->endpoint);
-		return NGX_CONF_ERROR;
-	}
+    clientcf = ngx_pmap_get_conf(cf->cycle->conf_ctx, ngx_pmap_client_module);
 
-	ngx_pmap_add_listening(cf, &clientcf->listen, NULL);
+    ngx_pmap_add_listening(cf, &clientcf->listen, NULL);
 
-	return NGX_CONF_OK;
+    return NGX_CONF_OK;
 }
 
 static void *
 ngx_pmap_core_create_conf(ngx_cycle_t *cycle)
 {
-	ngx_pmap_conf_t *corecf;
+    ngx_pmap_conf_t *corecf;
 
-	corecf = ngx_palloc(cycle->pool, sizeof(ngx_pmap_conf_t));
-	if (NULL == corecf) {
-		return NULL;
-	}
+    corecf = ngx_palloc(cycle->pool, sizeof(ngx_pmap_conf_t));
+    if (NULL == corecf) {
+        return NULL;
+    }
 
-	corecf->endpoint = NGX_CONF_UNSET;
-	corecf->error_log = &cycle->new_log;
+    corecf->endpoint = NGX_CONF_UNSET;
+    corecf->error_log = &cycle->new_log;
 
-	return corecf;
+    return corecf;
 }
 
 static void *
 ngx_pmap_core_init_conf(ngx_cycle_t *cycle, void *conf)
 {
-	return NGX_CONF_OK;
+    return NGX_CONF_OK;
 }
 
 static char *
 ngx_pmap_parse_client(ngx_conf_t *cf, ngx_command_t *cmd, void *conf)
 {
-	ngx_conf_t   save;
-	char        *rv;
+    ngx_conf_t   save;
+    char        *rv;
 
-	save = *cf;
-	cf->cmd_type = NGX_PMAP_CLIENT_CONF;
+    save = *cf;
+    cf->cmd_type = NGX_PMAP_CLIENT_CONF;
 
-	rv = ngx_conf_parse(cf, NULL);
+    rv = ngx_conf_parse(cf, NULL);
 
-	*cf = save;
-	
-	return rv;
+    *cf = save;
+    
+    return rv;
 }
 
 static char *
 ngx_pmap_parse_server(ngx_conf_t *cf, ngx_command_t *cmd, void *conf)
-{   	
-	return NGX_CONF_OK;
+{       
+    return NGX_CONF_OK;
 }
 
 char *
 ngx_pmap_parse_listen_addr(ngx_conf_t *cf, ngx_pmap_listen_t *ls)
 {
-	ngx_str_t  *value;
+    ngx_str_t  *value;
     ngx_url_t   u;
     ngx_uint_t  i;
 
-	/* parse the inet address */
-	
+    /* parse the inet address */
+    
     value = cf->args->elts;
 
     ngx_memzero(&u, sizeof(ngx_url_t));
@@ -271,7 +272,7 @@ ngx_pmap_parse_listen_addr(ngx_conf_t *cf, ngx_pmap_listen_t *ls)
     ls->backlog = NGX_LISTEN_BACKLOG;
     ls->wildcard = u.wildcard;
 
-	/* parse the left argument */
+    /* parse the left argument */
 
     for (i = 2; i < cf->args->nelts; i++) {
         if (ngx_strcmp(value[i].data, "bind") == 0) {
@@ -308,21 +309,21 @@ ngx_pmap_parse_listen_addr(ngx_conf_t *cf, ngx_pmap_listen_t *ls)
                            "the invalid \"%V\" parameter", &value[i]);
         return NGX_CONF_ERROR;
     }
-	
-	return NGX_CONF_OK;
+    
+    return NGX_CONF_OK;
 }
 
 char *
 ngx_pmap_parse_addr(ngx_conf_t *cf, ngx_pmap_addr_t *addr)
 {
-	ngx_str_t  *value;
+    ngx_str_t  *value;
     ngx_url_t   u;
 
-	/* parse the inet address */
+    /* parse the inet address */
 
-	value = (ngx_str_t *)cf->args->elts;
+    value = (ngx_str_t *)cf->args->elts;
 
-	ngx_memzero(&u, sizeof(ngx_url_t));
+    ngx_memzero(&u, sizeof(ngx_url_t));
     u.url = value[1];
 
     if (ngx_parse_url(cf->pool, &u) != NGX_OK) {
@@ -340,33 +341,33 @@ ngx_pmap_parse_addr(ngx_conf_t *cf, ngx_pmap_addr_t *addr)
         return NGX_CONF_ERROR;
     }
 
-	addr->name = u.url;
-	ngx_memcpy(&addr->u.sockaddr, u.sockaddr, u.socklen);	
-	addr->socklen = u.socklen;
+    addr->name = u.url;
+    ngx_memcpy(&addr->u.sockaddr, u.sockaddr, u.socklen);   
+    addr->socklen = u.socklen;
 
-	return NGX_CONF_OK;
+    return NGX_CONF_OK;
 }
 
 static ngx_listening_t *
 ngx_pmap_add_listening(ngx_conf_t *cf, ngx_pmap_listen_t *lscf, ngx_connection_handler_pt handler)
 {
-	ngx_listening_t    *ls;
-	ngx_pmap_conf_t    *corecf;
+    ngx_listening_t    *ls;
+    ngx_pmap_conf_t    *corecf;
 
-	ls = ngx_create_listening(cf, &lscf->u.sockaddr, lscf->socklen);
-	if (NULL == ls) {
-		return NULL;
-	}
+    ls = ngx_create_listening(cf, &lscf->u.sockaddr, lscf->socklen);
+    if (NULL == ls) {
+        return NULL;
+    }
 
-	corecf = ngx_pmap_get_conf(cf->cycle->conf_ctx, ngx_pmap_core_module);
-	
-	ls->addr_ntop = 1;	
-	ls->handler = handler;
-	ls->pool_size = 256;
+    corecf = ngx_pmap_get_conf(cf->cycle->conf_ctx, ngx_pmap_core_module);
+    
+    ls->addr_ntop = 1;  
+    ls->handler = handler;
+    ls->pool_size = 256;
 
-	ls->logp = corecf->error_log;
-	ls->log.data = &ls->addr_text;
-	ls->log.handler = ngx_accept_log_error;
+    ls->logp = corecf->error_log;
+    ls->log.data = &ls->addr_text;
+    ls->log.handler = ngx_accept_log_error;
 
-	return ls;   
+    return ls;   
 }
