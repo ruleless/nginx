@@ -68,18 +68,11 @@ typedef struct {
 } ngx_pmap_conf_t;
 
 
-/* conf structure of ngx_pmap_client_module */
-typedef struct {
-    ngx_pmap_listen_t    listen;
-    ngx_pmap_addr_t      server_addr;
-    
-    ngx_flag_t           use_kcp;
-    ngx_pmap_addr_t      kcp_addr;
-} ngx_pmap_client_conf_t;
-
-
 char *ngx_pmap_parse_listen_addr(ngx_conf_t *cf, ngx_pmap_listen_t *ls);
 char *ngx_pmap_parse_addr(ngx_conf_t *cf, ngx_pmap_addr_t *addr);
+
+void ngx_pmap_close_connection(ngx_connection_t *c);
+void ngx_pmap_empty_write_handler(ngx_event_t *wev);
 
 
 #endif /* _NGX_PMAP_H_INCLUDED_ */

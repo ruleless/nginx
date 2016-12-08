@@ -1,7 +1,9 @@
 #include <ngx_config.h>
 #include <ngx_core.h>
 #include <ngx_event.h>
+
 #include "ngx_pmap.h"
+#include "ngx_pmap_client_module.h"
 
 extern ngx_module_t ngx_pmap_client_module;
 
@@ -188,9 +190,11 @@ ngx_pmap_block(ngx_conf_t *cf, ngx_command_t *cmd, void *conf)
         return NGX_CONF_ERROR;
     }
 
-    clientcf = ngx_pmap_get_conf(cf->cycle->conf_ctx, ngx_pmap_client_module);
-
-    ngx_pmap_add_listening(cf, &clientcf->listen, NULL);
+    if (NGX_PMAP_ENDPOINT_CLIENT == corecf->endpoint) { /* for client */
+        clientcf = ngx_pmap_get_conf(cf->cycle->conf_ctx, ngx_pmap_client_module);
+        
+        ngx_pmap_add_listening(cf, &clientcf->listen, ngx_pmap_client_init_connection);
+    } 
 
     return NGX_CONF_OK;
 }
@@ -370,4 +374,21 @@ ngx_pmap_add_listening(ngx_conf_t *cf, ngx_pmap_listen_t *lscf, ngx_connection_h
     ls->log.handler = ngx_accept_log_error;
 
     return ls;   
+}
+
+void
+ngx_pmap_close_connection(ngx_connection_t *c)
+{
+    ngx_pool_t  *pool;
+
+    c->destroyed = 1;
+    pool = c->pool;
+
+    ngx_close_connection(c);
+    ngx_destroy_pool(pool);
+}
+
+void
+ngx_pmap_empty_write_handler(ngx_event_t *wev)
+{    
 }
