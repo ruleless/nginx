@@ -5,7 +5,7 @@
 #include <ngx_core.h>
 
 typedef struct {
-   
+    
 } ngx_forward_tunnel_t;
 
 #endif /* _NGX_FORWARD_TUNNEL_H_ */
