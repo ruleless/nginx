@@ -182,7 +182,7 @@ ngx_pmap_block(ngx_conf_t *cf, ngx_command_t *cmd, void *conf)
 
     /* init listen */
     
-    corecf = ngx_pmap_get_conf(cf->cycle->conf_ctx, ngx_pmap_core_module);    
+    corecf = ngx_pmap_get_conf(cf->cycle->conf_ctx, ngx_pmap_core_module);
             
     if (!ngx_pmap_is_valid_endpt(corecf->endpoint)) {
         ngx_conf_log_error(NGX_LOG_EMERG, cf, 0,
