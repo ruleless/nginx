@@ -1231,6 +1231,31 @@ fi
 modules="$modules $MISC_MODULES"
 
 
+ngx_module_type=PMAP
+PMAP_MODULES=
+
+if [ $NGX_PORT_MAP = YES ]; then
+    ngx_module_name="ngx_pmap_module \
+                     ngx_pmap_core_module \
+                     ngx_pmap_client_module"
+    ngx_module_incs="src/port_map"
+    ngx_module_deps="src/port_map/ngx_pmap.h \
+                     src/port_map/ngx_pmap_client_module.h \
+ 					 src/port_map/ikcp.h \
+                     src/port_map/kcp_tunnel.h"
+    ngx_module_srcs="src/port_map/ngx_pmap.c \
+                     src/port_map/ngx_pmap_client_module.c \
+                     src/port_map/ikcp.c \
+                     src/port_map/kcp_tunnel.c"
+    ngx_module_libs=
+    ngx_module_link=YES
+
+    . auto/module
+fi
+
+modules="$modules $PMAP_MODULES"
+
+
 cat << END                                    > $NGX_MODULES_C
 
 #include <ngx_config.h>

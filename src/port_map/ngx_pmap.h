@@ -37,6 +37,7 @@ typedef struct {
     int                     backlog;
 } ngx_pmap_listen_t;
 
+
 /* inet address */
 typedef struct {
     union {
@@ -66,6 +67,10 @@ typedef struct {
     ngx_int_t    endpoint;
     ngx_log_t   *error_log;
 } ngx_pmap_conf_t;
+
+
+extern ngx_module_t ngx_pmap_module;
+extern ngx_module_t ngx_pmap_core_module;
 
 
 char *ngx_pmap_parse_listen_addr(ngx_conf_t *cf, ngx_pmap_listen_t *ls);
