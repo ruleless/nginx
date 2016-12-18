@@ -63,11 +63,11 @@ kcp_tunnel_group_init(kcp_tunnel_group_t *group, ngx_cycle_t *cycle)
 
     /* register read event */
 
-    rev = c->read;
+    rev = c->read;    
     wev = c->write;
-
-    rev->handler = kcp_tunnel_group_on_recv;
+    
     rev->log = group->log;
+    rev->handler = kcp_tunnel_group_on_recv;
             
     wev->ready = 1; /* UDP sockets are always ready to write */
     wev->log = group->log;
