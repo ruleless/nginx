@@ -243,6 +243,16 @@ ngx_pmap_parse_server(ngx_conf_t *cf, ngx_command_t *cmd, void *conf)
     return NGX_CONF_OK;
 }
 
+void *ngx_pmap_cache_alloc(void *ctx, size_t size)
+{
+    return ngx_palloc(ctx, size);
+}
+
+void ngx_pmap_cache_dealloc(void *ctx, void *p)
+{
+    ngx_pfree(ctx, p);
+}
+
 char *
 ngx_pmap_parse_listen_addr(ngx_conf_t *cf, ngx_pmap_listen_t *ls)
 {

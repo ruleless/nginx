@@ -1,6 +1,8 @@
 #ifndef __ALG_LIST_H__
 #define __ALG_LIST_H__
 
+#include <stdio.h>
+
 #ifndef container_of
 # define container_of(ptr, type, member)                    \
     (type *)((char *)(ptr) - (char *)&((type *)0)->member)

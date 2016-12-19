@@ -8,10 +8,10 @@
 extern "C" {
 #endif
 
-typedef int (*alg_cache_flush_handler_pt)(const void *, size_t);
-
 typedef struct alg_cache_seg_s  alg_cache_seg_t;
 typedef struct alg_cache_s      alg_cache_t;
+
+typedef int (*alg_cache_flush_handler_pt)(alg_cache_t *t, const void *data, size_t size);
 
 struct alg_cache_seg_s {
     struct list_head    node;
@@ -23,6 +23,8 @@ struct alg_cache_seg_s {
 struct alg_cache_s {
     struct list_head            memcache;
     alg_disk_cache_t            dcache;
+
+    void                       *data;
 
     size_t                      memcache_size;
     size_t                      dcache_size;

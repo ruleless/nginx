@@ -3,10 +3,18 @@
 
 #include <ngx_config.h>
 #include <ngx_core.h>
+#include <ngx_rbtree.h>
 
 #include "alg_cache.h"
 #include "ngx_pmap.h"
 #include "ikcp.h"
+
+#ifndef True
+# define True  1
+#endif
+#ifndef False
+# define False 0
+#endif
 
 
 typedef struct kcp_arg_s            kcp_arg_t;
@@ -34,6 +42,9 @@ struct kcp_tunnel_s {
 
     kcp_tunnel_group_t     *group;
 
+    ngx_int_t               sent_count;
+    ngx_int_t               recv_count;
+
     alg_cache_t            *cache;
 
     unsigned                addr_settled:1;
@@ -59,7 +70,7 @@ struct kcp_tunnel_group_s {
 
 
 /* function for kcp tunnel */
-ssize_t kcp_send(kcp_tunnel_t *tunnel, const void *data, size_t size);
+int kcp_send(kcp_tunnel_t *t, const void *data, size_t size);
 
 
 /* function for kcp tunnel group */
@@ -67,7 +78,7 @@ ssize_t kcp_send(kcp_tunnel_t *tunnel, const void *data, size_t size);
 int kcp_group_init(kcp_tunnel_group_t *group);
 
 kcp_tunnel_t *kcp_create_tunnel(kcp_tunnel_group_t *group, IUINT32 conv);
-void kcp_destroy_tunnel(kcp_tunnel_group_t *group, kcp_tunnel_t *tunnel);
+void kcp_destroy_tunnel(kcp_tunnel_group_t *group, kcp_tunnel_t *t);
 
 kcp_tunnel_t *kcp_find_tunnel(kcp_tunnel_group_t *group, IUINT32 conv);
 

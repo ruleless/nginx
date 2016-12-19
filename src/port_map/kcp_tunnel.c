@@ -15,20 +15,98 @@ static void kcp_tunnel_group_on_recv(ngx_event_t *rev);
 
 
 /* function for kcp tunnel */
-static int kcp_flushall();
-static int kcp_flushsndbuf(const void *data, size_t size);
 
-ssize_t
-kcp_send(kcp_tunnel_t *tunnel, const void *data, size_t size)
+static int kcp_cache(kcp_tunnel_t *t, const void *data, size_t size);
+
+static int kcp_flushall(kcp_tunnel_t *t);
+static int kcp_flushsndbuf(alg_cache_t *c, const void *data, size_t size);
+static int kcp_canflush(kcp_tunnel_t *t);
+
+int
+kcp_send(kcp_tunnel_t *t, const void *data, size_t size)
 {
+    if (kcp_canflush(t) &&
+        kcp_flushall(t) &&
+        kcp_flushsndbuf(t->cache, data, size)) {
+        
+        return True;
+    }
     
+    return kcp_cache(t, data, size);
+}
+
+static int
+kcp_output_handler(const char *buf, int len, ikcpcb *kcp, void *user)
+{
+    return 0;
+}
+
+static int
+kcp_cache(kcp_tunnel_t *t, const void *data, size_t size)
+{
+    return alg_cache_push(t->cache, data, size);
+}
+
+static int
+kcp_flushall(kcp_tunnel_t *t)
+{   
+    if (kcp_canflush(t)) {
+        return alg_cache_flushall(t->cache);
+    }
+
+    return False;
+}
+
+static int
+kcp_flushsndbuf(alg_cache_t *c, const void *data, size_t size)
+{
+    kcp_tunnel_t *t;
+    ikcpcb       *kcpcb;
+    const char   *ptr;
+    size_t        maxlen;
+
+    t = c->data;
+    kcpcb = t->kcpcb;
+    
+    if (!kcp_canflush(t)) {
+        return False;
+    }
+    
+    ptr = (const char *)data;
+    maxlen = kcpcb->mss<<4;
+    for (;;)
+    {
+        if (size <= maxlen) // in most case
+        {
+            ikcp_send(kcpcb, (const char *)ptr, size);
+            ++t->sent_count;
+            break;
+        }
+        else
+        {
+            ikcp_send(kcpcb, (const char *)ptr, maxlen);
+            ++t->sent_count;
+            ptr += maxlen;
+            size -= maxlen;
+        }
+    }
+    
+    return True;
+}
+
+static int
+kcp_canflush(kcp_tunnel_t *t)        
+{
+    ikcpcb *kcpcb = t->kcpcb;
+    
+    return ikcp_waitsnd(kcpcb) < (int)(kcpcb->snd_wnd<<1);
 }
 
 
 /* function for kcp tunnel group */
 
 int
-kcp_group_init(kcp_tunnel_group_t *group)
+kcp_group_init(kcp_tunnel_group_t *g)
 {
     ngx_connection_t    *c;
     ngx_event_t         *rev, *wev;
@@ -38,22 +116,22 @@ kcp_group_init(kcp_tunnel_group_t *group)
 
     s = ngx_socket(AF_INET, SOCK_DGRAM, 0);
 
-    ngx_log_error(NGX_LOG_INFO, group->log, 0,
+    ngx_log_error(NGX_LOG_INFO, g->log, 0,
                   "create kcp tunnel group! UDP socket %d", s);
 
     if ((ngx_socket_t)-1 == s) {
-        ngx_log_error(NGX_LOG_ERR, group->log, ngx_socket_errno,
+        ngx_log_error(NGX_LOG_ERR, g->log, ngx_socket_errno,
                       ngx_socket_n " failed");
         return NGX_ERROR;
     }
 
     /* get connection */
 
-    c = ngx_get_connection(s, group->log);
+    c = ngx_get_connection(s, g->log);
 
     if (NULL == c) {
         if (ngx_close_socket(s) == -1) {
-            ngx_log_error(NGX_LOG_ERR, group->log, ngx_socket_errno,
+            ngx_log_error(NGX_LOG_ERR, g->log, ngx_socket_errno,
                           ngx_close_socket_n "failed");
         }
 
@@ -61,23 +139,23 @@ kcp_group_init(kcp_tunnel_group_t *group)
     }
 
     if (ngx_nonblocking(s) == -1) {
-        ngx_log_error(NGX_LOG_ERR, group->log, ngx_socket_errno,
+        ngx_log_error(NGX_LOG_ERR, g->log, ngx_socket_errno,
                       ngx_nonblocking_n " failed");
 
         goto failed;
     }
 
-    group->udp_conn = c;
+    g->udp_conn = c;
 
     /* bind address for server */
     
-    pcf = ngx_pmap_get_conf(group->cycle->conf_ctx, ngx_pmap_core_module);
-    group->ep = pcf->endpoint;
-    if (NGX_PMAP_ENDPOINT_SERVER == group->ep) {
+    pcf = ngx_pmap_get_conf(g->cycle->conf_ctx, ngx_pmap_core_module);
+    g->ep = pcf->endpoint;
+    if (NGX_PMAP_ENDPOINT_SERVER == g->ep) {
         
-        if (bind(s, &group->addr.u.sockaddr, group->addr.socklen) < 0) {
+        if (bind(s, &g->addr.u.sockaddr, g->addr.socklen) < 0) {
             
-            ngx_log_error(NGX_LOG_ERR, group->log, ngx_socket_errno,
+            ngx_log_error(NGX_LOG_ERR, g->log, ngx_socket_errno,
                           ngx_close_socket_n "failed");
             
             goto failed;
@@ -89,14 +167,14 @@ kcp_group_init(kcp_tunnel_group_t *group)
     rev = c->read;    
     wev = c->write;
     
-    rev->log = group->log;
+    rev->log = g->log;
     rev->handler = kcp_tunnel_group_on_recv;
             
     wev->ready = 1; /* UDP sockets are always ready to write */
-    wev->log = group->log;
+    wev->log = g->log;
 
     c->number = ngx_atomic_fetch_add(ngx_connection_counter, 1);
-    c->data = group;
+    c->data = g;
 
     event = (ngx_event_flags & NGX_USE_CLEAR_EVENT) ?
             NGX_CLEAR_EVENT: /* kqueue, epoll */
@@ -108,79 +186,95 @@ kcp_group_init(kcp_tunnel_group_t *group)
 
     /* init rbtree(it's used to store kcp tunnel) */
     
-    ngx_rbtree_init(&group->rbtree, &group->sentinel, ngx_rbtree_insert_value);
+    ngx_rbtree_init(&g->rbtree, &g->sentinel, ngx_rbtree_insert_value);
 
     return NGX_OK;
 
 failed:
     ngx_close_connection(c);
-    group->udp_conn = NULL;
+    g->udp_conn = NULL;
 
     return NGX_ERROR;
 }
 
 kcp_tunnel_t *
-kcp_create_tunnel(kcp_tunnel_group_t *group, IUINT32 conv)
+kcp_create_tunnel(kcp_tunnel_group_t *g, IUINT32 conv)
 {    
-    kcp_tunnel_t    *tun;
+    kcp_tunnel_t    *t;
     kcp_arg_t       *arg;
 
-    if (kcp_find_tunnel(group, conv)) {
-        ngx_log_error(NGX_LOG_ERR, group->log, 0,
+    if (kcp_find_tunnel(g, conv)) {
+        ngx_log_error(NGX_LOG_ERR, g->log, 0,
                       "kcp tunnel already exist! conv=%u", conv);
         return NULL;
     }
 
-    tun = ngx_palloc(group->pool, sizeof(kcp_tunnel_t));
-    if (NULL == tun) {
+    /* create tunnel */
+
+    t = ngx_pcalloc(g->pool, sizeof(kcp_tunnel_t));
+    if (NULL == t) {
         return NULL;
     }
 
-    tun->conv         = conv;    
-    tun->group        = group;
-    tun->cache        = NULL;
-    tun->addr_settled = 0;
+    t->conv  = conv;    
+    t->group = g;
+
+    t->cache = alg_cache_create(kcp_flushsndbuf,
+                                ngx_pmap_cache_alloc,
+                                ngx_pmap_cache_dealloc,
+                                g->pool);
+
+    if (NULL == t->cache) {
+        ngx_log_error(NGX_LOG_ALERT, g->log, 0,
+                      "create cache failed! kcp conv=%u", t->conv);
+
+        ngx_pfree(g->pool, t);
+
+        return NULL;
+    }
+
+    t->cache->data = t;
 
     /* create kcp */
     
-    tun->kcpcb = ikcp_create(conv, tun);
-    if (NULL == tun->kcpcb) {
-        ngx_log_error(NGX_LOG_ERR, group->log, 0,
+    t->kcpcb = ikcp_create(conv, t);
+    if (NULL == t->kcpcb) {
+        ngx_log_error(NGX_LOG_ERR, g->log, 0,
                       "ikcp_create()  failed! conv=%u", conv);
         return NULL;
     }
 
-    tun->kcpcb->output = kcp_output_handler;
+    t->kcpcb->output = kcp_output_handler;
 
     arg = &kcp_prefab_args[2];
-    ikcp_nodelay(tun->kcpcb, arg->nodelay, arg->interval, arg->resend, arg->nc);
-    ikcp_setmtu(tun->kcpcb, arg->mtu);    
+    ikcp_nodelay(t->kcpcb, arg->nodelay, arg->interval, arg->resend, arg->nc);
+    ikcp_setmtu(t->kcpcb, arg->mtu);    
 
     /* insert kcp to the rbtree */
     
-    ngx_log_error(NGX_LOG_INFO, group->log, 0,
+    ngx_log_error(NGX_LOG_INFO, g->log, 0,
                   "create kcp tunnel! conv=%u", conv);
-    ngx_rbtree_insert(&group->rbtree, &tun->node);
+    ngx_rbtree_insert(&g->rbtree, &t->node);
 
-    return tun;
+    return t;
 }
 
 void
-kcp_destroy_tunnel(kcp_tunnel_group_t *group, kcp_tunnel_t *tunnel)
+kcp_destroy_tunnel(kcp_tunnel_group_t *g, kcp_tunnel_t *t)
 {
-    ngx_rbtree_delete(&group->rbtree, &tunnel->node);
+    ngx_rbtree_delete(&g->rbtree, &t->node);
 
-    ikcp_release(tunnel->kcpcb);
-    ngx_pfree(group->pool, tunnel);
+    ikcp_release(t->kcpcb);
+    ngx_pfree(g->pool, t);
 }
 
 kcp_tunnel_t *
-kcp_find_tunnel(kcp_tunnel_group_t *group, IUINT32 conv)
+kcp_find_tunnel(kcp_tunnel_group_t *g, IUINT32 conv)
 {
     ngx_rbtree_node_t  *node, *sentinel;
 
-    node = &group->rbtree.root;
-    sentinel = &group->sentinel;
+    node = g->rbtree.root;
+    sentinel = &g->sentinel;
 
     while (node != sentinel && node->key != conv) {
         node = conv < node->key ? node->left : node->right;

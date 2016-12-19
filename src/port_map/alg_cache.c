@@ -1,4 +1,7 @@
 #include "alg_cache.h"
+#include <stdio.h>
+#include <string.h>
+#include <assert.h>
 
 #define MAX_MEM_CACHE_SIZE  256*1024
 
@@ -73,7 +76,7 @@ alg_cache_push(alg_cache_t *cache, const void *data, size_t size)
         
         rv = alg_disk_cache_write(&cache->dcache, data, size);
 
-        if (rv == size) {
+        if (rv == (ssize_t)size) {
             cache->dcache_size += size;
             return 1;
         }
@@ -115,7 +118,7 @@ alg_cache_flushall(alg_cache_t *cache)
     {
         seg = list_entry(pos, alg_cache_seg_t, node);
 
-        if (cache->handler(seg->data, seg->size)) {
+        if (cache->handler(cache, seg->data, seg->size)) {
             list_del(&seg->node);
             cache->dealloc(cache->alloc_ctx, seg->data);            
             cache->dealloc(cache->alloc_ctx, seg);
@@ -130,9 +133,9 @@ alg_cache_flushall(alg_cache_t *cache)
         ptr = (char *)cache->alloc(cache->alloc_ctx, sz);
         
         assert(ptr && "alg_cache_flushall()  alloc failed!");
-        assert(alg_disk_cache_read(&cache->dcache, ptr, sz) == sz);
+        assert(alg_disk_cache_read(&cache->dcache, ptr, sz) == (ssize_t)sz);
 
-        if (cache->handler(ptr, sz)) {          
+        if (cache->handler(cache, ptr, sz)) {          
             cache->dcache_size -= sz;
             cache->dealloc(cache->alloc_ctx, ptr);
         } else {

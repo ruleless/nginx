@@ -1242,10 +1242,15 @@ if [ $NGX_PORT_MAP = YES ]; then
     ngx_module_deps="src/port_map/ngx_pmap.h \
                      src/port_map/ngx_pmap_client_module.h \
  					 src/port_map/ikcp.h \
+ 					 src/port_map/list.h \
+ 					 src/port_map/alg_cache.h \
+ 					 src/port_map/alg_disk_cache.h \
                      src/port_map/kcp_tunnel.h"
     ngx_module_srcs="src/port_map/ngx_pmap.c \
                      src/port_map/ngx_pmap_client_module.c \
                      src/port_map/ikcp.c \
+                     src/port_map/alg_cache.c \
+                     src/port_map/alg_disk_cache.c \
                      src/port_map/kcp_tunnel.c"
     ngx_module_libs=
     ngx_module_link=YES

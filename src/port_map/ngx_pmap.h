@@ -73,6 +73,9 @@ extern ngx_module_t ngx_pmap_module;
 extern ngx_module_t ngx_pmap_core_module;
 
 
+void *ngx_pmap_cache_alloc(void *ctx, size_t size);
+void ngx_pmap_cache_dealloc(void *ctx, void *p);
+
 char *ngx_pmap_parse_listen_addr(ngx_conf_t *cf, ngx_pmap_listen_t *ls);
 char *ngx_pmap_parse_addr(ngx_conf_t *cf, ngx_pmap_addr_t *addr);
 
