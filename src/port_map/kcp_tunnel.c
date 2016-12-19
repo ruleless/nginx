@@ -1,6 +1,7 @@
 #include "kcp_tunnel.h"
 
 #include <ngx_socket.h>
+#include <ngx_event.h>
 
 static void kcp_tunnel_group_on_recv(ngx_event_t *rev);
 
@@ -8,7 +9,7 @@ int
 kcp_tunnel_group_init(kcp_tunnel_group_t *group)
 {
     ngx_connection_t    *c;
-    ngx_event_t         *rev, wev;
+    ngx_event_t         *rev, *wev;
     ngx_pmap_conf_t     *pcf;
     ngx_socket_t         s;
     ngx_int_t            event;
@@ -38,7 +39,7 @@ kcp_tunnel_group_init(kcp_tunnel_group_t *group)
     }
 
     if (ngx_nonblocking(s) == -1) {
-        ngx_log_error(NGX_LOG_ERR, &rec->log, ngx_socket_errno,
+        ngx_log_error(NGX_LOG_ERR, group->log, ngx_socket_errno,
                       ngx_nonblocking_n " failed");
 
         goto failed;
@@ -62,11 +63,11 @@ kcp_tunnel_group_init(kcp_tunnel_group_t *group)
 
     /* register read event */
 
-    rev = c->read;
+    rev = c->read;    
     wev = c->write;
-
-    rev->handler = kcp_tunnel_group_on_recv;
+    
     rev->log = group->log;
+    rev->handler = kcp_tunnel_group_on_recv;
             
     wev->ready = 1; /* UDP sockets are always ready to write */
     wev->log = group->log;
@@ -134,3 +135,7 @@ kcp_find_tunnel(kcp_tunnel_group_t *group, IUINT32 conv)
 
     return NULL;
 }
+
+void
+kcp_tunnel_group_on_recv(ngx_event_t *rev)
+{}

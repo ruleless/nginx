@@ -161,6 +161,8 @@ USE_GEOIP=NO
 NGX_GOOGLE_PERFTOOLS=NO
 NGX_CPP_TEST=NO
 
+NGX_PORT_MAP=YES
+
 NGX_LIBATOMIC=NO
 
 NGX_CPU_CACHE_LINE=
@@ -312,6 +314,8 @@ use the \"--with-mail_ssl_module\" option instead"
 
         --with-google_perftools_module)  NGX_GOOGLE_PERFTOOLS=YES   ;;
         --with-cpp_test_module)          NGX_CPP_TEST=YES           ;;
+
+        --without-port_map)             NGX_PORT_MAP=NO             ;;
 
         --add-module=*)                  NGX_ADDONS="$NGX_ADDONS $value" ;;
         --add-dynamic-module=*)          DYNAMIC_ADDONS="$DYNAMIC_ADDONS $value" ;;
