@@ -5,7 +5,7 @@
 static void kcp_tunnel_group_on_recv(ngx_event_t *rev);
 
 int
-kcp_tunnel_group_init(kcp_tunnel_group_t *group, ngx_cycle_t *cycle)
+kcp_tunnel_group_init(kcp_tunnel_group_t *group)
 {
     ngx_connection_t    *c;
     ngx_event_t         *rev, wev;
@@ -48,7 +48,7 @@ kcp_tunnel_group_init(kcp_tunnel_group_t *group, ngx_cycle_t *cycle)
 
     /* bind address for server */
     
-    pcf = ngx_pmap_get_conf(cycle->conf_ctx, ngx_pmap_core_module);
+    pcf = ngx_pmap_get_conf(group->cycle->conf_ctx, ngx_pmap_core_module);
     if (NGX_PMAP_ENDPOINT_SERVER == pcf->endpoint) {
         
         if (bind(s, &group->addr.u.sockaddr, group->addr.socklen) < 0) {
@@ -97,8 +97,40 @@ failed:
 
 kcp_tunnel_t *
 kcp_create_tunnel(kcp_tunnel_group_t *group, IUINT32 conv)
-{}
+{
+    
+    kcp_tunnel_t    *tun;
+
+    tun = ngx_palloc(group->pool, sizeof(kcp_tunnel_t));
+    if (NULL == tun) {
+        return NULL;
+    }
+
+    tun->conv = conv;
+    tun->group = group;
+    tun->addr_settled = 0;
+
+    
+}
 
 void
 kcp_destroy_tunnel(kcp_tunnel_group_t *group, kcp_tunnel_t *tunnel)
 {}
+
+kcp_tunnel_t *
+kcp_find_tunnel(kcp_tunnel_group_t *group, IUINT32 conv)
+{
+    ngx_rbtree_node_t  *node, *sentinel;
+
+    node = &group->rbtree.root;
+    sentinel = &group->sentinel;
+
+    while (node != sentinel && node->key != conv) {
+        node = conv < node->key ? node->left : node->right;
+    }
+
+    if (node != sentinel)
+        return (kcp_tunnel_t *)node;
+
+    return NULL;
+}
