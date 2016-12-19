@@ -3,10 +3,32 @@
 #include <ngx_socket.h>
 #include <ngx_event.h>
 
+static kcp_arg_t kcp_prefab_args[] = {
+    {0, 30, 2, 0, 1400,},
+    {0, 20, 2, 1, 1400,},
+    {1, 20, 2, 1, 1400,},
+    {1, 10, 2, 1, 1400,},
+};
+
+static int kcp_output_handler(const char *buf, int len, ikcpcb *kcp, void *user);
 static void kcp_tunnel_group_on_recv(ngx_event_t *rev);
 
+
+/* function for kcp tunnel */
+static int kcp_flushall();
+static int kcp_flushsndbuf(const void *data, size_t size);
+
+ssize_t
+kcp_send(kcp_tunnel_t *tunnel, const void *data, size_t size)
+{
+    
+}
+
+
+/* function for kcp tunnel group */
+
 int
-kcp_tunnel_group_init(kcp_tunnel_group_t *group)
+kcp_group_init(kcp_tunnel_group_t *group)
 {
     ngx_connection_t    *c;
     ngx_event_t         *rev, *wev;
@@ -50,7 +72,8 @@ kcp_tunnel_group_init(kcp_tunnel_group_t *group)
     /* bind address for server */
     
     pcf = ngx_pmap_get_conf(group->cycle->conf_ctx, ngx_pmap_core_module);
-    if (NGX_PMAP_ENDPOINT_SERVER == pcf->endpoint) {
+    group->ep = pcf->endpoint;
+    if (NGX_PMAP_ENDPOINT_SERVER == group->ep) {
         
         if (bind(s, &group->addr.u.sockaddr, group->addr.socklen) < 0) {
             
@@ -59,7 +82,7 @@ kcp_tunnel_group_init(kcp_tunnel_group_t *group)
             
             goto failed;
         }
-    }       
+    }
 
     /* register read event */
 
@@ -98,25 +121,58 @@ failed:
 
 kcp_tunnel_t *
 kcp_create_tunnel(kcp_tunnel_group_t *group, IUINT32 conv)
-{
-    
+{    
     kcp_tunnel_t    *tun;
+    kcp_arg_t       *arg;
+
+    if (kcp_find_tunnel(group, conv)) {
+        ngx_log_error(NGX_LOG_ERR, group->log, 0,
+                      "kcp tunnel already exist! conv=%u", conv);
+        return NULL;
+    }
 
     tun = ngx_palloc(group->pool, sizeof(kcp_tunnel_t));
     if (NULL == tun) {
         return NULL;
     }
 
-    tun->conv = conv;
-    tun->group = group;
+    tun->conv         = conv;    
+    tun->group        = group;
+    tun->cache        = NULL;
     tun->addr_settled = 0;
 
+    /* create kcp */
     
+    tun->kcpcb = ikcp_create(conv, tun);
+    if (NULL == tun->kcpcb) {
+        ngx_log_error(NGX_LOG_ERR, group->log, 0,
+                      "ikcp_create()  failed! conv=%u", conv);
+        return NULL;
+    }
+
+    tun->kcpcb->output = kcp_output_handler;
+
+    arg = &kcp_prefab_args[2];
+    ikcp_nodelay(tun->kcpcb, arg->nodelay, arg->interval, arg->resend, arg->nc);
+    ikcp_setmtu(tun->kcpcb, arg->mtu);    
+
+    /* insert kcp to the rbtree */
+    
+    ngx_log_error(NGX_LOG_INFO, group->log, 0,
+                  "create kcp tunnel! conv=%u", conv);
+    ngx_rbtree_insert(&group->rbtree, &tun->node);
+
+    return tun;
 }
 
 void
 kcp_destroy_tunnel(kcp_tunnel_group_t *group, kcp_tunnel_t *tunnel)
-{}
+{
+    ngx_rbtree_delete(&group->rbtree, &tunnel->node);
+
+    ikcp_release(tunnel->kcpcb);
+    ngx_pfree(group->pool, tunnel);
+}
 
 kcp_tunnel_t *
 kcp_find_tunnel(kcp_tunnel_group_t *group, IUINT32 conv)
