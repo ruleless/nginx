@@ -38,14 +38,16 @@ struct kcp_tunnel_s {
     ngx_rbtree_node_t       node;
     
     IUINT32                 conv;
-    ikcpcb                 *kcpcb;
+    ikcpcb                 *kcp;
 
     kcp_tunnel_group_t     *group;
+
+    void                  (*recv_handler)(kcp_tunnel_t *, const void *, size_t);
 
     ngx_int_t               sent_count;
     ngx_int_t               recv_count;
 
-    alg_cache_t            *cache;
+    alg_cache_t            *sndcache;
 
     unsigned                addr_settled:1;
     ngx_pmap_addr_t         addr; /* peer addr */
@@ -71,6 +73,10 @@ struct kcp_tunnel_group_s {
 
 /* function for kcp tunnel */
 int kcp_send(kcp_tunnel_t *t, const void *data, size_t size);
+
+int kcp_input(kcp_tunnel_t *t, const void *data, size_t size);
+
+ngx_msec_t kcp_update(kcp_tunnel_t *t, ngx_msec_t curtime);
 
 
 /* function for kcp tunnel group */

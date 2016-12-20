@@ -16,8 +16,6 @@ static void kcp_tunnel_group_on_recv(ngx_event_t *rev);
 
 /* function for kcp tunnel */
 
-static int kcp_cache(kcp_tunnel_t *t, const void *data, size_t size);
-
 static int kcp_flushall(kcp_tunnel_t *t);
 static int kcp_flushsndbuf(alg_cache_t *c, const void *data, size_t size);
 static int kcp_canflush(kcp_tunnel_t *t);
@@ -27,12 +25,12 @@ kcp_send(kcp_tunnel_t *t, const void *data, size_t size)
 {
     if (kcp_canflush(t) &&
         kcp_flushall(t) &&
-        kcp_flushsndbuf(t->cache, data, size)) {
+        kcp_flushsndbuf(t->sndcache, data, size)) {
         
         return True;
     }
     
-    return kcp_cache(t, data, size);
+    return alg_cache_push(t->sndcache, data, size);
 }
 
 static int
@@ -42,16 +40,10 @@ kcp_output_handler(const char *buf, int len, ikcpcb *kcp, void *user)
 }
 
 static int
-kcp_cache(kcp_tunnel_t *t, const void *data, size_t size)
-{
-    return alg_cache_push(t->cache, data, size);
-}
-
-static int
 kcp_flushall(kcp_tunnel_t *t)
 {   
     if (kcp_canflush(t)) {
-        return alg_cache_flushall(t->cache);
+        return alg_cache_flushall(t->sndcache);
     }
 
     return False;
@@ -61,30 +53,30 @@ static int
 kcp_flushsndbuf(alg_cache_t *c, const void *data, size_t size)
 {
     kcp_tunnel_t *t;
-    ikcpcb       *kcpcb;
+    ikcpcb       *kcp;
     const char   *ptr;
     size_t        maxlen;
 
     t = c->data;
-    kcpcb = t->kcpcb;
+    kcp = t->kcp;
     
     if (!kcp_canflush(t)) {
         return False;
     }
     
     ptr = (const char *)data;
-    maxlen = kcpcb->mss<<4;
+    maxlen = kcp->mss<<4;
     for (;;)
     {
         if (size <= maxlen) // in most case
         {
-            ikcp_send(kcpcb, (const char *)ptr, size);
+            ikcp_send(kcp, (const char *)ptr, size);
             ++t->sent_count;
             break;
         }
         else
         {
-            ikcp_send(kcpcb, (const char *)ptr, maxlen);
+            ikcp_send(kcp, (const char *)ptr, maxlen);
             ++t->sent_count;
             ptr += maxlen;
             size -= maxlen;
@@ -97,9 +89,52 @@ kcp_flushsndbuf(alg_cache_t *c, const void *data, size_t size)
 static int
 kcp_canflush(kcp_tunnel_t *t)        
 {
-    ikcpcb *kcpcb = t->kcpcb;
+    ikcpcb *kcp = t->kcp;
     
-    return ikcp_waitsnd(kcpcb) < (int)(kcpcb->snd_wnd<<1);
+    return ikcp_waitsnd(kcp) < (int)(kcp->snd_wnd<<1);
+}
+
+int
+kcp_input(kcp_tunnel_t *t, const void *data, size_t size)
+{
+    int ret = ikcp_input(t->kcp, (const char *)data, size);
+    return 0 == ret;
+}
+
+ngx_msec_t
+kcp_update(kcp_tunnel_t *t, ngx_msec_t curtime)
+{
+    ikcpcb       *kcp;
+    ngx_pool_t   *pool;
+    char         *buf;
+    int           size;
+    ngx_msec_t    nxt_call_time;
+
+    kcp = t->kcp;
+    pool  = t->group->pool;
+    
+    ikcp_update(kcp, curtime);
+    
+    kcp_flushall(t);
+    
+    size = ikcp_peeksize(kcp);
+    if (size > 0)
+    {
+        buf = (char *)ngx_palloc(pool, size);
+        
+        assert(buf != NULL && "ikcp_recv() malloc failed!");
+        assert(ikcp_recv(kcp, buf, size) == size);
+
+        ++t->recv_count;
+        if (t->recv_handler) {
+            t->recv_handler(t, buf, size);
+        }
+
+        ngx_pfree(pool, buf);
+    }
+
+    nxt_call_time = ikcp_check(kcp, curtime);
+    return nxt_call_time > curtime ? nxt_call_time - curtime : 0;
 }
 
 
@@ -219,12 +254,12 @@ kcp_create_tunnel(kcp_tunnel_group_t *g, IUINT32 conv)
     t->conv  = conv;    
     t->group = g;
 
-    t->cache = alg_cache_create(kcp_flushsndbuf,
+    t->sndcache = alg_cache_create(kcp_flushsndbuf,
                                 ngx_pmap_cache_alloc,
                                 ngx_pmap_cache_dealloc,
                                 g->pool);
 
-    if (NULL == t->cache) {
+    if (NULL == t->sndcache) {
         ngx_log_error(NGX_LOG_ALERT, g->log, 0,
                       "create cache failed! kcp conv=%u", t->conv);
 
@@ -233,22 +268,22 @@ kcp_create_tunnel(kcp_tunnel_group_t *g, IUINT32 conv)
         return NULL;
     }
 
-    t->cache->data = t;
+    t->sndcache->data = t;
 
     /* create kcp */
     
-    t->kcpcb = ikcp_create(conv, t);
-    if (NULL == t->kcpcb) {
+    t->kcp = ikcp_create(conv, t);
+    if (NULL == t->kcp) {
         ngx_log_error(NGX_LOG_ERR, g->log, 0,
                       "ikcp_create()  failed! conv=%u", conv);
         return NULL;
     }
 
-    t->kcpcb->output = kcp_output_handler;
+    t->kcp->output = kcp_output_handler;
 
     arg = &kcp_prefab_args[2];
-    ikcp_nodelay(t->kcpcb, arg->nodelay, arg->interval, arg->resend, arg->nc);
-    ikcp_setmtu(t->kcpcb, arg->mtu);    
+    ikcp_nodelay(t->kcp, arg->nodelay, arg->interval, arg->resend, arg->nc);
+    ikcp_setmtu(t->kcp, arg->mtu);    
 
     /* insert kcp to the rbtree */
     
@@ -264,7 +299,7 @@ kcp_destroy_tunnel(kcp_tunnel_group_t *g, kcp_tunnel_t *t)
 {
     ngx_rbtree_delete(&g->rbtree, &t->node);
 
-    ikcp_release(t->kcpcb);
+    ikcp_release(t->kcp);
     ngx_pfree(g->pool, t);
 }
 
