@@ -51,6 +51,7 @@ struct kcp_tunnel_s {
 
     unsigned                addr_settled:1;
     ngx_pmap_addr_t         addr; /* peer addr */
+    alg_cache_t            *output_cache;
 };
 
 
@@ -60,7 +61,7 @@ struct kcp_tunnel_group_s {
     ngx_pool_t             *pool;
     ngx_log_t              *log;
 
-    ngx_int_t               ep; /* endpoint(server of client) */
+    unsigned                is_server:1;
 
     ngx_pmap_addr_t         addr;
     ngx_connection_t       *udp_conn;
@@ -68,6 +69,8 @@ struct kcp_tunnel_group_s {
     /* rbtree to strore kcp tunnel */
     ngx_rbtree_t            rbtree;
     ngx_rbtree_node_t       sentinel;
+
+    kcp_arg_t               karg;
 };
 
 

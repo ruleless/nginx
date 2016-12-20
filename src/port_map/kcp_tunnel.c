@@ -10,22 +10,123 @@ static kcp_arg_t kcp_prefab_args[] = {
     {1, 10, 2, 1, 1400,},
 };
 
-static int kcp_output_handler(const char *buf, int len, ikcpcb *kcp, void *user);
-static void kcp_tunnel_group_on_recv(ngx_event_t *rev);
+static void kcp_group_on_event(ngx_event_t *ev);
 
 
 /* function for kcp tunnel */
 
-static int kcp_flushall(kcp_tunnel_t *t);
-static int kcp_flushsndbuf(alg_cache_t *c, const void *data, size_t size);
-static int kcp_canflush(kcp_tunnel_t *t);
+static int kcp_output_handler(const char *buf, int len, ikcpcb *kcp, void *user);
+
+/* output cache is used to store sent data when the peer address is unknown */
+static int kcp_obuf_cache(kcp_tunnel_t *t, const void *data, size_t size);
+static int kcp_obuf_flushall(kcp_tunnel_t *t);
+static int kcp_obuf_flush(alg_cache_t *c, const void *data, size_t size);
+
+static int kcp_sndbuf_flushall(kcp_tunnel_t *t);
+static int kcp_sndbuf_flush(alg_cache_t *c, const void *data, size_t size);
+static int kcp_sndbuf_canflush(kcp_tunnel_t *t);
+
+static int
+kcp_output_handler(const char *buf, int len, ikcpcb *kcp, void *user)
+{
+    kcp_tunnel_t        *t;
+    kcp_tunnel_group_t  *g;
+
+    t = user;
+    g = t->group;
+
+    if (g->is_server) {
+        if (t->addr_settled) {
+            
+            kcp_obuf_flushall(t);
+
+            if (sendto(g->udp_conn->fd, buf, (size_t)len, 0,
+                       &t->addr.u.sockaddr, t->addr.socklen) != len) {
+            
+                ngx_log_error(NGX_LOG_ERR, g->log, ngx_socket_errno,
+                              "send error!");
+            }
+        } else {
+            kcp_obuf_cache(t, buf, (size_t)len);
+        }
+    } else {
+        if (sendto(g->udp_conn->fd, buf, (size_t)len, 0,
+                   &g->addr.u.sockaddr, g->addr.socklen) != len) {
+            
+            ngx_log_error(NGX_LOG_ERR, g->log, ngx_socket_errno,
+                          "send error!");
+        }
+    }
+    
+    return 0;
+}
+
+static int
+kcp_obuf_cache(kcp_tunnel_t *t, const void *data, size_t size)
+{
+    kcp_tunnel_group_t  *g;
+    alg_cache_t         *c;
+
+    g = t->group;
+    c = t->output_cache;
+
+    if (NULL == c) {
+        c = alg_cache_create(kcp_obuf_flush,
+                             ngx_pmap_cache_alloc,
+                             ngx_pmap_cache_dealloc,
+                             g->pool);
+        
+        if (NULL == c) {
+            ngx_log_error(NGX_LOG_ALERT, g->log, 0,
+                          "create output cache failed! conv=%u", t->conv);
+
+            return False;
+        }
+
+        c->data = t;
+        t->output_cache = c;
+    }
+
+    return alg_cache_push(c, data, size);
+}
+
+static int
+kcp_obuf_flushall(kcp_tunnel_t *t)        
+{
+    if (NULL == t->output_cache) {
+        return True;
+    }
+
+    return alg_cache_flushall(t->output_cache);
+}
+
+static int
+kcp_obuf_flush(alg_cache_t *c, const void *data, size_t size)
+{
+    kcp_tunnel_t        *t;
+    kcp_tunnel_group_t  *g;
+
+    t = c->data;
+    g = t->group;
+
+    if (sendto(g->udp_conn->fd, data, size, 0,
+               &t->addr.u.sockaddr, t->addr.socklen) != (ssize_t)size) {
+        
+        ngx_log_error(NGX_LOG_ERR, g->log, ngx_socket_errno,
+                      "send error");
+
+        return False;
+    }
+
+    return True;
+}
 
 int
 kcp_send(kcp_tunnel_t *t, const void *data, size_t size)
 {
-    if (kcp_canflush(t) &&
-        kcp_flushall(t) &&
-        kcp_flushsndbuf(t->sndcache, data, size)) {
+    if (kcp_sndbuf_canflush(t) &&
+        kcp_sndbuf_flushall(t) &&
+        kcp_sndbuf_flush(t->sndcache, data, size)) {
         
         return True;
     }
@@ -34,15 +135,9 @@ kcp_send(kcp_tunnel_t *t, const void *data, size_t size)
 }
 
 static int
-kcp_output_handler(const char *buf, int len, ikcpcb *kcp, void *user)
-{
-    return 0;
-}
-
-static int
-kcp_flushall(kcp_tunnel_t *t)
+kcp_sndbuf_flushall(kcp_tunnel_t *t)
 {   
-    if (kcp_canflush(t)) {
+    if (kcp_sndbuf_canflush(t)) {
         return alg_cache_flushall(t->sndcache);
     }
 
@@ -50,7 +145,7 @@ kcp_flushall(kcp_tunnel_t *t)
 }
 
 static int
-kcp_flushsndbuf(alg_cache_t *c, const void *data, size_t size)
+kcp_sndbuf_flush(alg_cache_t *c, const void *data, size_t size)
 {
     kcp_tunnel_t *t;
     ikcpcb       *kcp;
@@ -60,7 +155,7 @@ kcp_flushsndbuf(alg_cache_t *c, const void *data, size_t size)
     t = c->data;
     kcp = t->kcp;
     
-    if (!kcp_canflush(t)) {
+    if (!kcp_sndbuf_canflush(t)) {
         return False;
     }
     
@@ -87,7 +182,7 @@ kcp_flushsndbuf(alg_cache_t *c, const void *data, size_t size)
 }
 
 static int
-kcp_canflush(kcp_tunnel_t *t)        
+kcp_sndbuf_canflush(kcp_tunnel_t *t)        
 {
     ikcpcb *kcp = t->kcp;
     
@@ -110,12 +205,12 @@ kcp_update(kcp_tunnel_t *t, ngx_msec_t curtime)
     int           size;
     ngx_msec_t    nxt_call_time;
 
-    kcp = t->kcp;
-    pool  = t->group->pool;
+    kcp  = t->kcp;
+    pool = t->group->pool;
     
     ikcp_update(kcp, curtime);
     
-    kcp_flushall(t);
+    kcp_sndbuf_flushall(t);
     
     size = ikcp_peeksize(kcp);
     if (size > 0)
@@ -185,8 +280,8 @@ kcp_group_init(kcp_tunnel_group_t *g)
     /* bind address for server */
     
     pcf = ngx_pmap_get_conf(g->cycle->conf_ctx, ngx_pmap_core_module);
-    g->ep = pcf->endpoint;
-    if (NGX_PMAP_ENDPOINT_SERVER == g->ep) {
+    g->is_server = (NGX_PMAP_ENDPOINT_SERVER == pcf->endpoint);
+    if (g->is_server) {
         
         if (bind(s, &g->addr.u.sockaddr, g->addr.socklen) < 0) {
             
@@ -203,7 +298,7 @@ kcp_group_init(kcp_tunnel_group_t *g)
     wev = c->write;
     
     rev->log = g->log;
-    rev->handler = kcp_tunnel_group_on_recv;
+    rev->handler = kcp_group_on_event;
             
     wev->ready = 1; /* UDP sockets are always ready to write */
     wev->log = g->log;
@@ -222,6 +317,7 @@ kcp_group_init(kcp_tunnel_group_t *g)
     /* init rbtree(it's used to store kcp tunnel) */
     
     ngx_rbtree_init(&g->rbtree, &g->sentinel, ngx_rbtree_insert_value);
+    g->karg = kcp_prefab_args[2];
 
     return NGX_OK;
 
@@ -254,10 +350,10 @@ kcp_create_tunnel(kcp_tunnel_group_t *g, IUINT32 conv)
     t->conv  = conv;    
     t->group = g;
 
-    t->sndcache = alg_cache_create(kcp_flushsndbuf,
-                                ngx_pmap_cache_alloc,
-                                ngx_pmap_cache_dealloc,
-                                g->pool);
+    t->sndcache = alg_cache_create(kcp_sndbuf_flush,
+                                   ngx_pmap_cache_alloc,
+                                   ngx_pmap_cache_dealloc,
+                                   g->pool);
 
     if (NULL == t->sndcache) {
         ngx_log_error(NGX_LOG_ALERT, g->log, 0,
@@ -281,7 +377,7 @@ kcp_create_tunnel(kcp_tunnel_group_t *g, IUINT32 conv)
 
     t->kcp->output = kcp_output_handler;
 
-    arg = &kcp_prefab_args[2];
+    arg = &g->karg;
     ikcp_nodelay(t->kcp, arg->nodelay, arg->interval, arg->resend, arg->nc);
     ikcp_setmtu(t->kcp, arg->mtu);    
 
@@ -298,8 +394,15 @@ void
 kcp_destroy_tunnel(kcp_tunnel_group_t *g, kcp_tunnel_t *t)
 {
     ngx_rbtree_delete(&g->rbtree, &t->node);
+    
+    alg_cache_destroy(t->sndcache);
+    
+    if (t->output_cache) {
+        alg_cache_destroy(t->output_cache);
+    }
 
     ikcp_release(t->kcp);
+    
     ngx_pfree(g->pool, t);
 }
 
@@ -322,5 +425,59 @@ kcp_find_tunnel(kcp_tunnel_group_t *g, IUINT32 conv)
 }
 
 void
-kcp_tunnel_group_on_recv(ngx_event_t *rev)
-{}
+kcp_group_on_event(ngx_event_t *ev)        
+{
+    kcp_tunnel_group_t *g;
+    kcp_tunnel_t       *t;
+    ngx_connection_t   *c;
+    ngx_pmap_addr_t     addr;
+    char               *buf;
+    int                 maxlen, recvlen;
+    IUINT32             conv;
+
+    c = ev->data;
+    g = c->data;
+    
+    if (ev->timedout) {
+        ev->timedout = 0;
+        return;
+    }
+    
+    /* recv data from internet */
+    
+    maxlen = g->karg.mtu;
+    
+    buf = (char *)ngx_palloc(g->pool, maxlen);
+    if (NULL == buf) {
+        ngx_log_error(NGX_LOG_ERR, g->log, 0, "malloc buf failed when recv!");
+        return;
+    }
+
+    addr.socklen = sizeof(addr.u);
+    recvlen = recvfrom(g->udp_conn->fd, buf, maxlen, 0, &addr.u.sockaddr, &addr.socklen);
+
+    /* input into kcp and update */
+
+    if (recvlen > 0)
+    {
+        conv = 0;
+        ikcp_get_conv(buf, recvlen, &conv);
+
+        t = kcp_find_tunnel(g, conv);
+            
+        if (t)
+        {
+            kcp_input(t, buf, recvlen);
+            if (g->is_server && !t->addr_settled) {
+                t->addr_settled = 1;
+                t->addr = addr;
+            }
+
+            kcp_update(t, ngx_current_msec);
+        }
+    }
+    
+    ngx_pfree(g->pool, buf);
+    
+    return;
+}
