@@ -425,14 +425,15 @@ kcp_find_tunnel(kcp_tunnel_group_t *g, IUINT32 conv)
 }
 
 void
-kcp_group_on_event(ngx_event_t *ev)        
+kcp_group_on_event(ngx_event_t *ev)
 {
     kcp_tunnel_group_t *g;
     kcp_tunnel_t       *t;
     ngx_connection_t   *c;
     ngx_pmap_addr_t     addr;
     char               *buf;
-    int                 maxlen, recvlen;
+    int                 maxlen, n;
+    ngx_err_t           err;
     IUINT32             conv;
 
     c = ev->data;
@@ -453,31 +454,40 @@ kcp_group_on_event(ngx_event_t *ev)
         return;
     }
 
-    addr.socklen = sizeof(addr.u);
-    recvlen = recvfrom(g->udp_conn->fd, buf, maxlen, 0, &addr.u.sockaddr, &addr.socklen);
+    for (;;) {
+        addr.socklen = sizeof(addr.u);
+        n = recvfrom(g->udp_conn->fd, buf, maxlen, 0, &addr.u.sockaddr, &addr.socklen);
+        err = ngx_socket_errno;
 
-    /* input into kcp and update */
-
-    if (recvlen > 0)
-    {
-        conv = 0;
-        ikcp_get_conv(buf, recvlen, &conv);
-
-        t = kcp_find_tunnel(g, conv);
-            
-        if (t)
-        {
-            kcp_input(t, buf, recvlen);
-            if (g->is_server && !t->addr_settled) {
-                t->addr_settled = 1;
-                t->addr = addr;
+        if (-1 == n) {
+            if (NGX_EAGAIN == err) {
+                ev->ready = 0;
             }
+        }
 
-            kcp_update(t, ngx_current_msec);
+        /* input into kcp and update */        
+
+        if (n > 0)
+        {
+            conv = 0;
+            ikcp_get_conv(buf, n, &conv);
+
+            t = kcp_find_tunnel(g, conv);
+            
+            if (t)
+            {
+                kcp_input(t, buf, n);
+                if (g->is_server && !t->addr_settled) {
+                    t->addr_settled = 1;
+                    t->addr = addr;
+                }
+
+                kcp_update(t, ngx_current_msec);
+            }
         }
     }
     
     ngx_pfree(g->pool, buf);
-    
+
     return;
 }
