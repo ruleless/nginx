@@ -66,7 +66,7 @@ struct kcp_tunnel_group_s {
     ngx_pmap_addr_t         addr;
     ngx_connection_t       *udp_conn;
 
-    ngx_uint_t              timer;
+    ngx_msec_t              timer;
 
     /* rbtree to strore kcp tunnel */
     ngx_rbtree_t            rbtree;
@@ -77,20 +77,17 @@ struct kcp_tunnel_group_s {
 
 
 /* function for kcp tunnel */
+
 int kcp_send(kcp_tunnel_t *t, const void *data, size_t size);
-
-int kcp_input(kcp_tunnel_t *t, const void *data, size_t size);
-
-ngx_msec_t kcp_update(kcp_tunnel_t *t, ngx_msec_t curtime);
 
 
 /* function for kcp tunnel group */
 
-int kcp_group_init(kcp_tunnel_group_t *group);
+int kcp_group_init(kcp_tunnel_group_t *g);
 
-kcp_tunnel_t *kcp_create_tunnel(kcp_tunnel_group_t *group, IUINT32 conv);
-void kcp_destroy_tunnel(kcp_tunnel_group_t *group, kcp_tunnel_t *t);
+kcp_tunnel_t *kcp_create_tunnel(kcp_tunnel_group_t *g, IUINT32 conv);
+void kcp_destroy_tunnel(kcp_tunnel_group_t *g, kcp_tunnel_t *t);
 
-kcp_tunnel_t *kcp_find_tunnel(kcp_tunnel_group_t *group, IUINT32 conv);
+kcp_tunnel_t *kcp_find_tunnel(kcp_tunnel_group_t *g, IUINT32 conv);
 
 #endif /* _KCP_TUNNEL_H_INCLUDED_ */

@@ -24,6 +24,11 @@ static int kcp_sndbuf_flushall(kcp_tunnel_t *t);
 static int kcp_sndbuf_flush(alg_cache_t *c, const void *data, size_t size);
 static int kcp_sndbuf_canflush(kcp_tunnel_t *t);
 
+static int kcp_input(kcp_tunnel_t *t, const void *data, size_t size);
+
+static ngx_msec_t kcp_update(kcp_tunnel_t *t, ngx_msec_t curtime);
+
+/* kcp group function */
 static void kcp_group_on_event(ngx_event_t *ev);
 static void kcp_group_reset_timer(kcp_tunnel_t *t);
 static void kcp_group_update(kcp_tunnel_group_t *g);
@@ -132,6 +137,8 @@ kcp_send(kcp_tunnel_t *t, const void *data, size_t size)
     if (kcp_sndbuf_canflush(t) &&
         kcp_sndbuf_flushall(t) &&
         kcp_sndbuf_flush(t->sndcache, data, size)) {
+
+        kcp_group_reset_timer(t);
         
         return True;
     }
@@ -181,7 +188,7 @@ kcp_sndbuf_flush(alg_cache_t *c, const void *data, size_t size)
             ptr += maxlen;
             size -= maxlen;
         }
-    }
+    }    
     
     return True;
 }
@@ -194,14 +201,14 @@ kcp_sndbuf_canflush(kcp_tunnel_t *t)
     return ikcp_waitsnd(kcp) < (int)(kcp->snd_wnd<<1);
 }
 
-int
+static int
 kcp_input(kcp_tunnel_t *t, const void *data, size_t size)
 {
     int ret = ikcp_input(t->kcp, (const char *)data, size);
     return 0 == ret;
 }
 
-ngx_msec_t
+static ngx_msec_t
 kcp_update(kcp_tunnel_t *t, ngx_msec_t curtime)
 {
     ikcpcb       *kcp;
@@ -321,7 +328,7 @@ kcp_group_init(kcp_tunnel_group_t *g)
 
     /* init rbtree(it's used to store kcp tunnel) */
 
-    g->timer = -1;
+    g->timer = (ngx_uint_t)-1;
         
     ngx_rbtree_init(&g->rbtree, &g->sentinel, ngx_rbtree_insert_value);
     g->karg = kcp_prefab_args[2];
@@ -447,6 +454,7 @@ kcp_group_on_event(ngx_event_t *ev)
     g = c->data;
     
     if (ev->timedout) {
+        kcp_group_update(g);
         ev->timedout = 0;
         return;
     }
@@ -492,10 +500,12 @@ kcp_group_on_event(ngx_event_t *ev)
             }
 
             kcp_update(t, ngx_current_msec);
+
+            kcp_group_reset_timer(t);
         }
     }
     
-    ngx_pfree(g->pool, buf);
+    ngx_pfree(g->pool, buf);    
 
     return;
 }
@@ -550,6 +560,8 @@ kcp_group_update(kcp_tunnel_group_t *g)
         t = (kcp_tunnel_t *)node;
 
         interval = kcp_update(t, ngx_current_msec);
+        if (interval < maxwait)
+            maxwait = interval;
 
         if (node->right != sentinel && top < KCP_STACK_SIZE-1) {
             s[++top] = node->right;
@@ -557,5 +569,11 @@ kcp_group_update(kcp_tunnel_group_t *g)
         if (node->left != sentinel && top < KCP_STACK_SIZE-1) {
             s[++top] = node->left;
         }
+    }
+
+    g->timer = (ngx_uint_t)-1;
+    if (maxwait != (ngx_uint_t)-1) {
+        g->timer = maxwait != 0 ? maxwait : 1;
+        ngx_add_timer(ev, g->timer);
     }
 }
