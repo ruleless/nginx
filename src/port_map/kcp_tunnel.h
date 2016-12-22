@@ -66,6 +66,8 @@ struct kcp_tunnel_group_s {
     ngx_pmap_addr_t         addr;
     ngx_connection_t       *udp_conn;
 
+    ngx_uint_t              timer;
+
     /* rbtree to strore kcp tunnel */
     ngx_rbtree_t            rbtree;
     ngx_rbtree_node_t       sentinel;

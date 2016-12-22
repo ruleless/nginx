@@ -10,12 +10,10 @@ static kcp_arg_t kcp_prefab_args[] = {
     {1, 10, 2, 1, 1400,},
 };
 
-static void kcp_group_on_event(ngx_event_t *ev);
+#define KCP_STACK_SIZE  32
 
 
-/* function for kcp tunnel */
-
-static int kcp_output_handler(const char *buf, int len, ikcpcb *kcp, void *user);
+/* static function declaration */
 
 /* output cache is used to store sent data when the peer address is unknown */
 static int kcp_obuf_cache(kcp_tunnel_t *t, const void *data, size_t size);
@@ -25,6 +23,13 @@ static int kcp_obuf_flush(alg_cache_t *c, const void *data, size_t size);
 static int kcp_sndbuf_flushall(kcp_tunnel_t *t);
 static int kcp_sndbuf_flush(alg_cache_t *c, const void *data, size_t size);
 static int kcp_sndbuf_canflush(kcp_tunnel_t *t);
+
+static void kcp_group_on_event(ngx_event_t *ev);
+static void kcp_group_reset_timer(kcp_tunnel_t *t);
+static void kcp_group_update(kcp_tunnel_group_t *g);
+
+
+/* function for kcp tunnel */
 
 static int
 kcp_output_handler(const char *buf, int len, ikcpcb *kcp, void *user)
@@ -315,7 +320,9 @@ kcp_group_init(kcp_tunnel_group_t *g)
     }
 
     /* init rbtree(it's used to store kcp tunnel) */
-    
+
+    g->timer = -1;
+        
     ngx_rbtree_init(&g->rbtree, &g->sentinel, ngx_rbtree_insert_value);
     g->karg = kcp_prefab_args[2];
 
@@ -424,7 +431,7 @@ kcp_find_tunnel(kcp_tunnel_group_t *g, IUINT32 conv)
     return NULL;
 }
 
-void
+static void
 kcp_group_on_event(ngx_event_t *ev)
 {
     kcp_tunnel_group_t *g;
@@ -460,34 +467,95 @@ kcp_group_on_event(ngx_event_t *ev)
         err = ngx_socket_errno;
 
         if (-1 == n) {
-            if (NGX_EAGAIN == err) {
-                ev->ready = 0;
+            if (NGX_EINTR == err) {
+                continue;
+            } else {
+                ngx_connection_error(c, err, "recv() failed");
             }
+            
+            break;
         }
 
         /* input into kcp and update */        
 
-        if (n > 0)
-        {
-            conv = 0;
-            ikcp_get_conv(buf, n, &conv);
+        conv = 0;
+        ikcp_get_conv(buf, n, &conv);
 
-            t = kcp_find_tunnel(g, conv);
+        t = kcp_find_tunnel(g, conv);
             
-            if (t)
-            {
-                kcp_input(t, buf, n);
-                if (g->is_server && !t->addr_settled) {
-                    t->addr_settled = 1;
-                    t->addr = addr;
-                }
-
-                kcp_update(t, ngx_current_msec);
+        if (t) {            
+            kcp_input(t, buf, n);
+            
+            if (g->is_server && !t->addr_settled) {
+                t->addr_settled = 1;
+                t->addr = addr;
             }
+
+            kcp_update(t, ngx_current_msec);
         }
     }
     
     ngx_pfree(g->pool, buf);
 
     return;
+}
+
+static void
+kcp_group_reset_timer(kcp_tunnel_t *t)
+{
+    kcp_tunnel_group_t *g;
+    ngx_event_t        *ev;
+    ngx_msec_t          nxt_call_time, interval;
+
+    nxt_call_time = ikcp_check(t->kcp, ngx_current_msec);
+    interval = nxt_call_time-ngx_current_msec;
+    if (0 == interval)
+        interval = 1;
+
+    g = t->group;
+    ev = g->udp_conn->read;
+    
+    if (interval < g->timer) {
+        if (ev->timer_set) {
+            ngx_del_timer(ev);
+        }
+
+        g->timer = interval;
+        ngx_add_timer(ev, g->timer);
+    }
+}
+
+static void
+kcp_group_update(kcp_tunnel_group_t *g)
+{
+    ngx_rbtree_node_t  *root, *node, *sentinel, *s[KCP_STACK_SIZE];
+    ngx_event_t        *ev;
+    kcp_tunnel_t       *t;
+    ngx_int_t           top;
+    ngx_msec_t          maxwait, interval;
+
+    root = g->rbtree.root;
+    sentinel = &g->sentinel;
+    
+    ev = g->udp_conn->read;
+
+    if (root == sentinel) {
+        return;
+    }
+
+    maxwait = (ngx_uint_t)-1;
+    s[top=1] = root;    
+    while (top > 0) {
+        node = s[top--];
+        t = (kcp_tunnel_t *)node;
+
+        interval = kcp_update(t, ngx_current_msec);
+
+        if (node->right != sentinel && top < KCP_STACK_SIZE-1) {
+            s[++top] = node->right;
+        }
+        if (node->left != sentinel && top < KCP_STACK_SIZE-1) {
+            s[++top] = node->left;
+        }
+    }
 }
