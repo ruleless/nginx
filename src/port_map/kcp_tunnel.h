@@ -36,6 +36,8 @@ struct kcp_arg_s
 /* kcp tunnel */
 struct kcp_tunnel_s {
     ngx_rbtree_node_t       node;
+
+    void                   *data;
     
     IUINT32                 conv;
     ikcpcb                 *kcp;
